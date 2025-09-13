@@ -220,60 +220,60 @@ class F5TTSWrapper:
             # Add a flag to check which embedding to use
             self.model.duration_predictor.using_phonemes = False
         
-        def _load_checkpoint(self, model, ckpt_path, dtype=None, use_ema=True):
-            """
-            Load model checkpoint with proper handling of different checkpoint formats.
-            
-            Args:
-                model: The model to load weights into
-                ckpt_path: Path to the checkpoint file
-                dtype: Data type for model weights
-                use_ema: Whether to use EMA weights from the checkpoint
-            
-            Returns:
-                Loaded model
-            """
-            if dtype is None:
-                dtype = (
-                    torch.float16
-                    if "cuda" in self.device
-                    and torch.cuda.get_device_properties(self.device).major >= 7
-                    and not torch.cuda.get_device_name().endswith("[ZLUDA]")
-                    else torch.float32
-                )
-            model = model.to(dtype)
-    
-            ckpt_type = ckpt_path.split(".")[-1]
+    def _load_checkpoint(self, model, ckpt_path, dtype=None, use_ema=True):
+        """
+        Load model checkpoint with proper handling of different checkpoint formats.
+        
+        Args:
+            model: The model to load weights into
+            ckpt_path: Path to the checkpoint file
+            dtype: Data type for model weights
+            use_ema: Whether to use EMA weights from the checkpoint
+        
+        Returns:
+            Loaded model
+        """
+        if dtype is None:
+            dtype = (
+                torch.float16
+                if "cuda" in self.device
+                and torch.cuda.get_device_properties(self.device).major >= 7
+                and not torch.cuda.get_device_name().endswith("[ZLUDA]")
+                else torch.float32
+            )
+        model = model.to(dtype)
+
+        ckpt_type = ckpt_path.split(".")[-1]
+        if ckpt_type == "safetensors":
+            from safetensors.torch import load_file
+            checkpoint = load_file(ckpt_path, device=self.device)
+        else:
+            checkpoint = torch.load(ckpt_path, map_location=self.device, weights_only=True)
+
+        if use_ema:
             if ckpt_type == "safetensors":
-                from safetensors.torch import load_file
-                checkpoint = load_file(ckpt_path, device=self.device)
-            else:
-                checkpoint = torch.load(ckpt_path, map_location=self.device, weights_only=True)
-    
-            if use_ema:
-                if ckpt_type == "safetensors":
-                    checkpoint = {"ema_model_state_dict": checkpoint}
-                checkpoint["model_state_dict"] = {
-                    k.replace("ema_model.", ""): v
-                    for k, v in checkpoint["ema_model_state_dict"].items()
-                    if k not in ["initted", "step"]
-                }
-    
-                # patch for backward compatibility
-                for key in ["mel_spec.mel_stft.mel_scale.fb", "mel_spec.mel_stft.spectrogram.window"]:
-                    if key in checkpoint["model_state_dict"]:
-                        del checkpoint["model_state_dict"][key]
-    
-                model.load_state_dict(checkpoint["model_state_dict"])
-            else:
-                if ckpt_type == "safetensors":
-                    checkpoint = {"model_state_dict": checkpoint}
-                model.load_state_dict(checkpoint["model_state_dict"])
-    
-            del checkpoint
-            torch.cuda.empty_cache()
-    
-            return model.to(self.device)
+                checkpoint = {"ema_model_state_dict": checkpoint}
+            checkpoint["model_state_dict"] = {
+                k.replace("ema_model.", ""): v
+                for k, v in checkpoint["ema_model_state_dict"].items()
+                if k not in ["initted", "step"]
+            }
+
+            # patch for backward compatibility
+            for key in ["mel_spec.mel_stft.mel_scale.fb", "mel_spec.mel_stft.spectrogram.window"]:
+                if key in checkpoint["model_state_dict"]:
+                    del checkpoint["model_state_dict"][key]
+
+            model.load_state_dict(checkpoint["model_state_dict"])
+        else:
+            if ckpt_type == "safetensors":
+                checkpoint = {"model_state_dict": checkpoint}
+            model.load_state_dict(checkpoint["model_state_dict"])
+
+        del checkpoint
+        torch.cuda.empty_cache()
+
+        return model.to(self.device)
     
     def preprocess_reference(self, ref_audio_path: str, ref_text: str = "", clip_short: bool = True):
         """
